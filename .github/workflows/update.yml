@@ -3,10 +3,10 @@ name: Golf-Scraper Auto-Update
 on:
   workflow_dispatch:
   schedule:
-    # 1. Reguläre Samstags-Spieltage (6): 12:00 bis 22:55 Uhr MESZ (10-20 UTC) alle 5 Minuten
-    - cron: '*/5 10-20 * * 6'
-    # 2. Sonntage (0) & Feiertags-Wochentage (Mo=1, Do=4, Fr=5): 12:00 bis 22:30 Uhr MESZ alle 30 Minuten
-    - cron: '*/30 10-20 * * 0,1,4,5'
+    # 1. Reguläre Samstags-Spieltage (6): April–September, 12:00 bis 22:55 Uhr MESZ (10-20 UTC) alle 5 Minuten
+    - cron: '*/5 10-20 * 4-9 6'
+    # 2. Sonntage (0) & Feiertags-Wochentage (Mo=1, Do=4, Fr=5): April–September, 12:00 bis 22:30 Uhr MESZ alle 30 Minuten
+    - cron: '*/30 10-20 * 4-9 0,1,4,5'
 
 permissions:
   contents: write
