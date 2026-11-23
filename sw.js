@@ -1,11 +1,12 @@
 // Service Worker für GC Mülheim AK 50 PWA
 // Strategie: Network-First (immer frische Daten aus dem Netz, Cache als Offline-Fallback)
 
-const CACHE_NAME = 'gcmh-ak50-v5';
+const CACHE_NAME = 'gcmh-ak50-v6';
 const ASSETS_TO_CACHE = [
     './',
     './index.html',
     './ergebnisse.html',
+    './app.js',
     './manifest.json',
     './icon-192.png',
     './icon-512.png'
