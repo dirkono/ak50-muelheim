@@ -505,10 +505,25 @@ function openMatchdayModal(dayKey) {
     let playerHtml = '';
     const players = d.players || [];
     players.forEach(p => {
-        const isStreich = p.is_cutoff;
+        const isStreich = !!(p.is_streichergebnis || p.is_cutoff);
         const cardBg = isStreich
             ? 'bg-slate-50/70 dark:bg-slate-800/40 border-dashed border-slate-300 dark:border-slate-700 opacity-75'
             : 'bg-white dark:bg-slate-800/90 border-slate-200 dark:border-slate-700 shadow-2xs';
+
+        const firstName = p.name || '';
+        const lastName = p.familyname || '';
+        const fullName = p.player_name || `${firstName} ${lastName}`.trim() || 'Spieler';
+
+        const hcpText = p.hcp || '-';
+        const playinHcpText = p.playinhcp ? ` &bull; Sp.HCP: <strong class="text-slate-700 dark:text-slate-300">${p.playinhcp}</strong>` : '';
+
+        const bruttoScore = p.erg_brutto || p.brutto || '-';
+        let plusCrText = '-';
+        const rawPlusCr = (p.plus_cr !== undefined && p.plus_cr !== null && p.plus_cr !== '') ? p.plus_cr : p.cr_diff;
+        if (rawPlusCr !== undefined && rawPlusCr !== null && rawPlusCr !== '') {
+            const num = parseFloat(rawPlusCr);
+            plusCrText = (!isNaN(num) && num > 0 ? '+' + rawPlusCr : String(rawPlusCr)) + ' ü. CR';
+        }
 
         let holeByHole = '';
         if (p.pars && p.pars.length >= 21 && p.scores && p.scores.length >= 21) {
@@ -608,19 +623,19 @@ function openMatchdayModal(dayKey) {
             <div class="flex justify-between items-start">
                 <div>
                     <div class="font-bold text-xs sm:text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
-                        <span>${p.player_name}</span>
+                        <span>${fullName}</span>
                         ${isStreich ? '<span class="text-[10px] px-1.5 py-0.2 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400 rounded-sm font-semibold">Streichergebnis</span>' : ''}
                     </div>
                     <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                        HCP: <strong class="text-slate-700 dark:text-slate-300">${p.hcp || '-'}</strong>
+                        HCP: <strong class="text-slate-700 dark:text-slate-300">${hcpText}</strong>${playinHcpText}
                     </div>
                 </div>
                 <div class="text-right">
-                    <div class="text-xs sm:text-sm font-extrabold text-blue-700 dark:text-sky-400">
-                        ${p.cr_diff ? (p.cr_diff > 0 ? '+' + p.cr_diff : p.cr_diff) + ' ü. CR' : '-'}
+                    <div class="text-xs sm:text-sm font-extrabold text-blue-700 dark:text-sky-400 font-mono">
+                        ${plusCrText}
                     </div>
                     <div class="text-[11px] text-slate-500 font-mono">
-                        Brutto: ${p.brutto || '-'}
+                        Brutto: ${bruttoScore}
                     </div>
                 </div>
             </div>
