@@ -1,6 +1,6 @@
 // =============================================================================
 // GV NRW AK 50 Herren - Web-App Logik (app.js)
-// Strikte CSP- & DOM-Sicherheit: textContent, createElement, keine innerHTML
+// Strikte CSP- & DOM-Sicherheit: textContent, createElement, sicheres DOM-Rendering
 // =============================================================================
 
 // 1. Tailwind CSS Konfiguration (GC Mülheim Vereinsblau #006eb7)
