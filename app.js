@@ -1,6 +1,6 @@
 // =============================================================================
 // GV NRW AK 50 Herren - Web-App Logik (app.js)
-// Strikte CSP-Konformität: Keine Inline-Scripts, keine Inline-Event-Handler
+// Strikte CSP- & DOM-Sicherheit: textContent, createElement, keine innerHTML
 // =============================================================================
 
 // 1. Tailwind CSS Konfiguration (GC Mülheim Vereinsblau #006eb7)
@@ -57,7 +57,15 @@ window.tailwind.config = {
     }
 };
 
-// 2. Daten & Initialer Zustand
+// 2. DOM-Hilfsfunktion für sicheres Erstellen von Elementen (XSS-frei)
+function el(tag, classes = '', text = null) {
+    const elem = document.createElement(tag);
+    if (classes) elem.className = classes;
+    if (text !== null && text !== undefined) elem.textContent = text;
+    return elem;
+}
+
+// 3. Daten & Initialer Zustand
 let GVNRW_DATA = {};
 try {
     const dataEl = document.getElementById('golf-data');
@@ -74,14 +82,14 @@ let currentTeam = urlParams.get('team') || localStorage.getItem('gvnrw_team') ||
 let currentModalTab = 'teams';
 let allTableExpanded = false;
 
-// 3. UI-Hilfsfunktionen
+// 4. UI-Hilfsfunktionen & Sharing
 function showToast(message, icon = '📋') {
     const toast = document.getElementById('toastNotification');
     const msgEl = document.getElementById('toastMessage');
     const iconEl = document.getElementById('toastIcon');
     if (!toast) return;
-    if (msgEl) msgEl.innerText = message;
-    if (iconEl) iconEl.innerText = icon;
+    if (msgEl) msgEl.textContent = message;
+    if (iconEl) iconEl.textContent = icon;
     toast.classList.remove('opacity-0', 'translate-y-3');
     toast.classList.add('opacity-100', 'translate-y-0');
     setTimeout(() => {
@@ -114,11 +122,11 @@ function openShareModal() {
     const subTitle = document.getElementById('shareModalSubtitle');
     const input = document.getElementById('shareUrlInput');
     const url = getShareUrl();
-    if (subTitle) subTitle.innerText = `⛳ GC Mülheim ${currentTeam} • Saison ${currentYear}`;
+    if (subTitle) subTitle.textContent = `⛳ GC Mülheim ${currentTeam} • Saison ${currentYear}`;
     if (input) input.value = url;
 
     const copyBtn = document.getElementById('copyShareBtn');
-    if (copyBtn) copyBtn.innerHTML = '<span>Kopieren</span>';
+    if (copyBtn) copyBtn.textContent = 'Kopieren';
 
     const sysBtn = document.getElementById('systemShareBtn');
     if (sysBtn) {
@@ -174,10 +182,10 @@ function copyShareUrl() {
     const url = getShareUrl();
     copyTextToClipboard(url).then(() => {
         const btn = document.getElementById('copyShareBtn');
-        if (btn) btn.innerHTML = '<span>Kopiert! ✓</span>';
+        if (btn) btn.textContent = 'Kopiert! ✓';
         showToast('Link erfolgreich kopiert!', '🔗');
         setTimeout(() => {
-            if (btn) btn.innerHTML = '<span>Kopieren</span>';
+            if (btn) btn.textContent = 'Kopieren';
         }, 2000);
     }).catch(() => {
         showToast('Kopieren fehlgeschlagen', '⚠️');
@@ -244,410 +252,483 @@ function setTeam(team, render = true) {
 }
 
 function toggleClubMatchdays(idx) {
-    const el = document.getElementById(`clubMatchdays-${idx}`);
+    const elId = document.getElementById(`clubMatchdays-${idx}`);
     const arrow = document.getElementById(`clubArrow-${idx}`);
-    if (!el) return;
-    const isHidden = el.classList.contains('hidden');
-    el.classList.toggle('hidden', !isHidden);
-    if (arrow) arrow.innerText = isHidden ? '▴' : '▾';
+    if (!elId) return;
+    const isHidden = elId.classList.contains('hidden');
+    elId.classList.toggle('hidden', !isHidden);
+    if (arrow) arrow.textContent = isHidden ? '▴' : '▾';
 }
 
 function toggleAllTableMatchdays() {
     allTableExpanded = !allTableExpanded;
-    document.querySelectorAll('[id^="clubMatchdays-"]').forEach(el => {
-        el.classList.toggle('hidden', !allTableExpanded);
+    document.querySelectorAll('[id^="clubMatchdays-"]').forEach(elem => {
+        elem.classList.toggle('hidden', !allTableExpanded);
     });
     document.querySelectorAll('[id^="clubArrow-"]').forEach(arrow => {
-        arrow.innerText = allTableExpanded ? '▴' : '▾';
+        arrow.textContent = allTableExpanded ? '▴' : '▾';
     });
     const btn = document.getElementById('toggleAllBtn');
     if (btn) {
-        btn.innerHTML = allTableExpanded
-            ? '<span>Verbergen</span> <span>▴</span>'
-            : '<span>Spieltage</span> <span>▾</span>';
+        btn.replaceChildren();
+        btn.appendChild(el('span', '', allTableExpanded ? 'Verbergen ' : 'Spieltage '));
+        btn.appendChild(el('span', '', allTableExpanded ? '▴' : '▾'));
     }
 }
 
+// 5. Sicheres DOM-Rendering für Tabellen, Grid & Modal (Priorität 2)
 function renderView() {
     const yearData = GVNRW_DATA[currentYear] || {};
     const groupData = yearData[currentTeam];
+    const tableBody = document.getElementById('standingsTableBody');
+    const matchdaysGrid = document.getElementById('matchdaysGrid');
+    const noticeContainer = document.getElementById('tableNoticeContainer');
 
     if (!groupData) {
-        document.getElementById('leagueGroupTitle').innerText = 'Keine Daten';
-        document.getElementById('standingsTableBody').innerHTML = '<tr><td colspan="4" class="py-6 text-center text-slate-400">Keine Daten für dieses Jahr verfügbar.</td></tr>';
-        document.getElementById('matchdaysGrid').innerHTML = '';
+        const titleEl = document.getElementById('leagueGroupTitle');
+        if (titleEl) titleEl.textContent = 'Keine Daten';
+        if (tableBody) {
+            tableBody.replaceChildren();
+            const tr = el('tr');
+            const td = el('td', 'py-6 text-center text-slate-400', 'Keine Daten für dieses Jahr verfügbar.');
+            td.colSpan = 4;
+            tr.appendChild(td);
+            tableBody.appendChild(tr);
+        }
+        if (matchdaysGrid) matchdaysGrid.replaceChildren();
         return;
     }
 
     const groupName = groupData.group_name || 'Gruppe';
-    document.getElementById('leagueGroupTitle').innerText = groupName + ' (' + currentYear + ')';
-    document.getElementById('subHeaderDesc').innerText = 'AK 50 Herren ' + currentYear + ' • GC Mülheim ' + currentTeam;
+    const groupTitleEl = document.getElementById('leagueGroupTitle');
+    if (groupTitleEl) groupTitleEl.textContent = `${groupName} (${currentYear})`;
+
+    const subDescEl = document.getElementById('subHeaderDesc');
+    if (subDescEl) subDescEl.textContent = `AK 50 Herren ${currentYear} • GC Mülheim ${currentTeam}`;
 
     const teams = groupData.teams || [];
-    const muelheimTeam = teams.find(t => t.club.toLowerCase().includes('mülheim'));
+    const muelheimTeam = teams.find(t => (t.club || '').toLowerCase().includes('mülheim'));
+    const rankBadge = document.getElementById('myRankBadge');
+    const ptsTag = document.getElementById('seasonPointsTag');
+
     if (muelheimTeam) {
-        document.getElementById('myRankBadge').innerText = 'Rang #' + muelheimTeam.rank;
-        document.getElementById('seasonPointsTag').innerText = muelheimTeam.points + ' Punkte';
+        if (rankBadge) rankBadge.textContent = `Rang #${muelheimTeam.rank}`;
+        if (ptsTag) ptsTag.textContent = `${muelheimTeam.points} Punkte`;
     } else {
-        document.getElementById('myRankBadge').innerText = '-';
-        document.getElementById('seasonPointsTag').innerText = '';
+        if (rankBadge) rankBadge.textContent = '-';
+        if (ptsTag) ptsTag.textContent = '';
     }
 
-    let tableHtml = '';
-    teams.forEach((t, idx) => {
-        const isMuelheim = t.club.toLowerCase().includes('mülheim');
-        const rowBg = isMuelheim
-            ? 'bg-blue-50/90 dark:bg-blue-950/60 font-bold border-l-4 border-blue-600'
-            : (idx % 2 === 0 ? 'bg-white dark:bg-slate-800' : 'bg-slate-50/75 dark:bg-slate-800/40');
+    // Sichere Tabellengenerierung
+    if (tableBody) {
+        tableBody.replaceChildren();
+        teams.forEach((t, idx) => {
+            const isMuelheim = (t.club || '').toLowerCase().includes('mülheim');
+            const rowBg = isMuelheim
+                ? 'bg-blue-50/90 dark:bg-blue-950/60 font-bold border-l-4 border-blue-600'
+                : (idx % 2 === 0 ? 'bg-white dark:bg-slate-800' : 'bg-slate-50/75 dark:bg-slate-800/40');
 
-        let rankBadge = `<span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200">${t.rank}</span>`;
-        if (t.rank === '1') rankBadge = `<span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">1</span>`;
-        if (t.rank === '2') rankBadge = `<span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-800 border border-slate-300">2</span>`;
-        if (t.rank === '3') rankBadge = `<span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold bg-orange-100 text-orange-900 border border-orange-300">3</span>`;
+            const tr = el('tr', `${rowBg} hover:bg-blue-50/50 dark:hover:bg-slate-700/50 transition-colors cursor-pointer`);
+            tr.dataset.clubIdx = String(idx);
 
-        let matchdaysButton = '';
-        let matchdaysSummary = '';
-        if (t.matchdays && Object.keys(t.matchdays).length > 0) {
-            const mdEntries = Object.entries(t.matchdays)
-                .filter(([k, v]) => v)
-                .map(([k, v]) => {
-                    const isNachholer = v.includes('[Nachholer]');
-                    const cleanVal = v.replace(' [Nachholer]', '');
-                    const badgeCls = isNachholer
-                        ? 'bg-blue-600 text-white font-bold shadow-xs'
-                        : 'bg-slate-100 text-slate-700 dark:bg-slate-700/60 dark:text-slate-300 border border-slate-200 dark:border-slate-700';
-                    const label = isNachholer ? `${k} (Nachholer)` : k;
-                    return `<span class="inline-block px-1.5 py-0.2 rounded text-[10px] ${badgeCls}">${label}: <strong>${cleanVal}</strong></span>`;
-                });
-            if (mdEntries.length > 0) {
-                matchdaysButton = `
-                <button type="button" data-action="toggle-club" data-club-idx="${idx}" class="inline-flex items-center gap-0.5 text-[10px] text-slate-400 hover:text-blue-700 dark:hover:text-sky-400 px-1 py-0.2 rounded hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors ml-1.5">
-                    <span>Spieltage</span> <span id="clubArrow-${idx}">▾</span>
-                </button>
-                `;
-                matchdaysSummary = `<div id="clubMatchdays-${idx}" class="hidden mt-1 flex flex-wrap gap-1">${mdEntries.join(' ')}</div>`;
+            // Rang
+            const tdRank = el('td', 'py-2 px-2 text-center align-middle');
+            let rankCls = 'inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200';
+            if (t.rank === '1' || t.rank === 1) rankCls = 'inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300';
+            else if (t.rank === '2' || t.rank === 2) rankCls = 'inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-800 border border-slate-300';
+            else if (t.rank === '3' || t.rank === 3) rankCls = 'inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold bg-orange-100 text-orange-900 border border-orange-300';
+            tdRank.appendChild(el('span', rankCls, String(t.rank || '-')));
+            tr.appendChild(tdRank);
+
+            // Club Name & Toggle
+            const tdClub = el('td', 'py-2 px-2.5');
+            const clubHeader = el('div', 'font-medium text-slate-900 dark:text-slate-100 flex items-center justify-between');
+            const clubTitle = el('span', 'flex items-center gap-1', t.club || '-');
+            if (isMuelheim) {
+                clubTitle.appendChild(el('span', 'text-xs', ' 🏌️‍♂️'));
             }
-        }
+            clubHeader.appendChild(clubTitle);
 
-        tableHtml += `
-        <tr class="${rowBg} hover:bg-blue-50/50 dark:hover:bg-slate-700/50 transition-colors cursor-pointer" data-club-idx="${idx}">
-            <td class="py-2 px-2 text-center align-middle">${rankBadge}</td>
-            <td class="py-2 px-2.5">
-                <div class="font-medium text-slate-900 dark:text-slate-100 flex items-center justify-between">
-                    <span class="flex items-center gap-1">${t.club} ${isMuelheim ? '<span class="text-xs">🏌️‍♂️</span>' : ''}</span>
-                    ${matchdaysButton}
-                </div>
-                ${matchdaysSummary}
-            </td>
-            <td class="py-2 px-2.5 text-right font-bold text-blue-700 dark:text-sky-400 align-middle text-xs sm:text-sm">${t.points || '-'}</td>
-            <td class="py-2 px-2.5 text-right text-slate-500 dark:text-slate-400 font-mono align-middle text-xs">${t.avg_cr || '-'}</td>
-        </tr>
-        `;
-    });
-    document.getElementById('standingsTableBody').innerHTML = tableHtml;
+            if (t.matchdays && Object.keys(t.matchdays).length > 0) {
+                const toggleBtn = el('button', 'inline-flex items-center gap-0.5 text-[10px] text-slate-400 hover:text-blue-700 dark:hover:text-sky-400 px-1 py-0.2 rounded hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors ml-1.5');
+                toggleBtn.type = 'button';
+                toggleBtn.dataset.action = 'toggle-club';
+                toggleBtn.dataset.clubIdx = String(idx);
+                toggleBtn.appendChild(el('span', '', 'Spieltage'));
+                const arrow = el('span', '', '▾');
+                arrow.id = `clubArrow-${idx}`;
+                toggleBtn.appendChild(arrow);
+                clubHeader.appendChild(toggleBtn);
+            }
+            tdClub.appendChild(clubHeader);
 
+            // Ausklappbare Spieltagsübersicht
+            if (t.matchdays && Object.keys(t.matchdays).length > 0) {
+                const mdContainer = el('div', 'hidden mt-1 flex flex-wrap gap-1');
+                mdContainer.id = `clubMatchdays-${idx}`;
+                Object.entries(t.matchdays).forEach(([k, v]) => {
+                    if (!v) return;
+                    const isNachholer = String(v).includes('[Nachholer]');
+                    const cleanVal = String(v).replace(' [Nachholer]', '');
+                    const badgeCls = isNachholer
+                        ? 'inline-block px-1.5 py-0.2 rounded text-[10px] bg-blue-600 text-white font-bold shadow-xs'
+                        : 'inline-block px-1.5 py-0.2 rounded text-[10px] bg-slate-100 text-slate-700 dark:bg-slate-700/60 dark:text-slate-300 border border-slate-200 dark:border-slate-700';
+                    const badge = el('span', badgeCls, `${isNachholer ? k + ' (Nachholer)' : k}: `);
+                    badge.appendChild(el('strong', '', cleanVal));
+                    mdContainer.appendChild(badge);
+                });
+                tdClub.appendChild(mdContainer);
+            }
+            tr.appendChild(tdClub);
+
+            // Punkte
+            const tdPoints = el('td', 'py-2 px-2.5 text-right font-bold text-blue-700 dark:text-sky-400 align-middle text-xs sm:text-sm', String(t.points != null ? t.points : '-'));
+            tr.appendChild(tdPoints);
+
+            // Ø über CR
+            const tdAvgCr = el('td', 'py-2 px-2.5 text-right text-slate-500 dark:text-slate-400 font-mono align-middle text-xs', String(t.avg_cr != null ? t.avg_cr : '-'));
+            tr.appendChild(tdAvgCr);
+
+            tableBody.appendChild(tr);
+        });
+    }
+
+    // Spielplan-Hinweise
     const matchdaysDetails = groupData.matchdays_details || {};
     const canceledList = Object.keys(matchdaysDetails).filter(k => matchdaysDetails[k].is_canceled);
     const rescheduledList = Object.keys(matchdaysDetails).filter(k => matchdaysDetails[k].is_rescheduled);
 
-    let noticeHtml = '';
-    if (canceledList.length > 0 || rescheduledList.length > 0) {
-        let noteText = '';
-        if (canceledList.length > 0 && rescheduledList.length > 0) {
-            noteText = `<strong>Spielplan-Besonderheit (${groupName}):</strong> Der <strong>${canceledList.join(', ')}</strong> fiel aus und wurde im Nachholtermin (<strong>${rescheduledList.join(', ')}</strong>) ausgetragen. Die Punkte fließen vollständig in das offizielle Endergebnis ein.`;
-        } else if (canceledList.length > 0) {
-            noteText = `<strong>Spielplan-Besonderheit (${groupName}):</strong> Folgende Spieltage fielen aus: <strong>${canceledList.join(', ')}</strong>.`;
-        } else {
-            noteText = `<strong>Spielplan-Besonderheit (${groupName}):</strong> Enthält nachgeholte Spieltage: <strong>${rescheduledList.join(', ')}</strong>. Alle Punkte fließen vollständig in das Endergebnis ein.`;
+    if (noticeContainer) {
+        noticeContainer.replaceChildren();
+        if (canceledList.length > 0 || rescheduledList.length > 0) {
+            let noteText = '';
+            if (canceledList.length > 0 && rescheduledList.length > 0) {
+                noteText = `Spielplan-Besonderheit (${groupName}): Der ${canceledList.join(', ')} fiel aus und wurde im Nachholtermin (${rescheduledList.join(', ')}) ausgetragen. Die Punkte fließen vollständig in das offizielle Endergebnis ein.`;
+            } else if (canceledList.length > 0) {
+                noteText = `Spielplan-Besonderheit (${groupName}): Folgende Spieltage fielen aus: ${canceledList.join(', ')}.`;
+            } else {
+                noteText = `Spielplan-Besonderheit (${groupName}): Enthält nachgeholte Spieltage: ${rescheduledList.join(', ')}. Alle Punkte fließen vollständig in das Endergebnis ein.`;
+            }
+            const box = el('div', 'px-4 py-2.5 bg-amber-50 dark:bg-amber-950/40 border-t border-amber-200/70 dark:border-amber-800/50 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2');
+            box.appendChild(el('span', 'text-base leading-none', 'ℹ️'));
+            box.appendChild(el('div', '', noteText));
+            noticeContainer.appendChild(box);
         }
-        noticeHtml = `
-        <div class="px-4 py-2.5 bg-amber-50 dark:bg-amber-950/40 border-t border-amber-200/70 dark:border-amber-800/50 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2">
-            <span class="text-base leading-none">ℹ️</span>
-            <div>${noteText}</div>
-        </div>
-        `;
     }
-    document.getElementById('tableNoticeContainer').innerHTML = noticeHtml;
 
-    let gridHtml = '';
-    const dayKeys = Object.keys(matchdaysDetails).sort((a,b) => {
-        const dateA = matchdaysDetails[a].date || '';
-        const dateB = matchdaysDetails[b].date || '';
-        if (dateA && dateB) {
-            return dateA.localeCompare(dateB);
-        }
-        const idxA = (groupData.headers || []).indexOf(a);
-        const idxB = (groupData.headers || []).indexOf(b);
-        if (idxA >= 0 && idxB >= 0) return idxA - idxB;
-        return (parseInt(a) || 0) - (parseInt(b) || 0);
-    });
+    // Sichere Spieltags-Kacheln
+    if (matchdaysGrid) {
+        matchdaysGrid.replaceChildren();
+        const dayKeys = Object.keys(matchdaysDetails).sort((a, b) => {
+            const dateA = matchdaysDetails[a].date || '';
+            const dateB = matchdaysDetails[b].date || '';
+            if (dateA && dateB) return dateA.localeCompare(dateB);
+            const idxA = (groupData.headers || []).indexOf(a);
+            const idxB = (groupData.headers || []).indexOf(b);
+            if (idxA >= 0 && idxB >= 0) return idxA - idxB;
+            return (parseInt(a) || 0) - (parseInt(b) || 0);
+        });
 
-    dayKeys.forEach(dayKey => {
-        const d = matchdaysDetails[dayKey];
-        const myResult = (d.team_results || []).find(r => r.team_name.toLowerCase().includes('mülheim'));
-        const scoreText = myResult ? (myResult.score ? myResult.score + ' (' + (myResult.points || '0') + ' Pkt)' : myResult.points + ' Pkt') : '-';
-        let cardClass = 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 shadow-xs hover:border-blue-500';
-        let dayTitleDisplay = d.day_name;
-        let dateDisplay = `<span class="text-[11px] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700/60 px-2 py-0.5 rounded-md font-mono">${d.date || 'Termin folgt'}</span>`;
-
-        if (d.is_canceled && d.linked_rescheduled_day) {
-            dayTitleDisplay = `<div class="flex items-center gap-2 flex-wrap">
-                <span class="font-extrabold text-sm text-slate-900 dark:text-white">${d.day_name}</span>
-                <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-blue-600 text-white shadow-xs">🔄 Nachholer am 19.09.</span>
-            </div>`;
-            dateDisplay = `<div class="text-right">
-                <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300 border border-amber-300">Urspr. 02.05. ausgefallen</span>
-                <div class="text-xs text-blue-600 dark:text-blue-400 font-bold font-mono mt-0.5">gespielt 19.09.</div>
-            </div>`;
-            cardClass = 'bg-blue-50/40 dark:bg-blue-950/20 border-2 border-blue-500 shadow-xs hover:border-blue-600';
-        } else if (d.is_canceled) {
-            dayTitleDisplay = `<span class="font-bold text-sm text-slate-900 dark:text-white">${d.day_name}</span>`;
-            dateDisplay = `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300 border border-amber-300">Ausgefallen</span> <span class="text-[11px] text-slate-400 line-through font-mono ml-1">${d.date || ''}</span>`;
-            cardClass = 'bg-amber-50/40 dark:bg-amber-950/20 border-dashed border-amber-300 dark:border-amber-700/60 opacity-85 hover:border-amber-400';
-        } else if (d.is_rescheduled) {
-            const canceledLabel = d.linked_canceled_day ? ` (Nachholer für ${d.linked_canceled_day})` : '';
-            dayTitleDisplay = `<div class="flex items-center gap-2 flex-wrap">
-                <span class="font-extrabold text-sm text-slate-900 dark:text-white">${d.day_name}${canceledLabel}</span>
-                <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-blue-600 text-white shadow-xs">🔄 Nachholspieltag</span>
-            </div>`;
-            dateDisplay = `<span class="text-[11px] text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-950/80 px-2 py-0.5 rounded-md font-mono font-bold border border-blue-300 dark:border-blue-700">${d.date}</span>`;
-            cardClass = 'bg-white dark:bg-slate-800 border-2 border-blue-400 dark:border-blue-600 shadow-xs hover:border-blue-500';
+        if (dayKeys.length === 0) {
+            matchdaysGrid.appendChild(el('p', 'col-span-2 text-center py-6 text-xs text-slate-400', 'Keine Spieltage für diese Gruppe hinterlegt.'));
+            return;
         }
 
-        const venueText = d.venue ? d.venue : (d.is_canceled ? 'Spieltag fand nicht statt' : 'Spielort offen');
+        dayKeys.forEach(dayKey => {
+            const d = matchdaysDetails[dayKey];
+            const myResult = (d.team_results || []).find(r => (r.team_name || '').toLowerCase().includes('mülheim'));
+            let scoreText = '-';
+            if (myResult) {
+                if (myResult.score) {
+                    scoreText = `${myResult.score} (${myResult.points || '0'} Pkt)`;
+                } else if (myResult.points) {
+                    scoreText = `${myResult.points} Pkt`;
+                }
+            }
 
-        gridHtml += `
-        <div class="${cardClass} rounded-xl p-3.5 border transition-all cursor-pointer flex flex-col justify-between active:scale-[0.98]" data-day-key="${dayKey}">
-            <div>
-                <div class="flex justify-between items-start mb-1 flex-wrap gap-1">
-                    <div>${dayTitleDisplay}</div>
-                    <div>${dateDisplay}</div>
-                </div>
-                <p class="text-xs text-slate-500 dark:text-slate-400 truncate mb-3">${venueText}</p>
-            </div>
-            <div class="flex justify-between items-center pt-2.5 border-t border-slate-100 dark:border-slate-700">
-                <span class="text-xs font-bold text-blue-700 dark:text-sky-400">${scoreText}</span>
-                <span class="text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1 font-medium">Details ➜</span>
-            </div>
-        </div>
-        `;
-    });
+            let cardClass = 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 shadow-xs hover:border-blue-500';
+            if (d.is_canceled && d.linked_rescheduled_day) {
+                cardClass = 'bg-blue-50/40 dark:bg-blue-950/20 border-2 border-blue-500 shadow-xs hover:border-blue-600';
+            } else if (d.is_canceled) {
+                cardClass = 'bg-amber-50/40 dark:bg-amber-950/20 border-dashed border-amber-300 dark:border-amber-700/60 opacity-85 hover:border-amber-400';
+            } else if (d.is_rescheduled) {
+                cardClass = 'bg-white dark:bg-slate-800 border-2 border-blue-400 dark:border-blue-600 shadow-xs hover:border-blue-500';
+            }
 
-    if (dayKeys.length === 0) {
-        gridHtml = '<p class="col-span-2 text-center py-6 text-xs text-slate-400">Keine Spieltage für diese Gruppe hinterlegt.</p>';
+            const card = el('div', `${cardClass} rounded-xl p-3.5 border transition-all cursor-pointer flex flex-col justify-between active:scale-[0.98]`);
+            card.dataset.dayKey = dayKey;
+
+            const topDiv = el('div');
+            const headerRow = el('div', 'flex justify-between items-start mb-1 flex-wrap gap-1');
+
+            const titleWrap = el('div');
+            if (d.is_canceled && d.linked_rescheduled_day) {
+                const wrap = el('div', 'flex items-center gap-2 flex-wrap');
+                wrap.appendChild(el('span', 'font-extrabold text-sm text-slate-900 dark:text-white', d.day_name));
+                wrap.appendChild(el('span', 'inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-blue-600 text-white shadow-xs', '🔄 Nachholer am 19.09.'));
+                titleWrap.appendChild(wrap);
+            } else if (d.is_rescheduled) {
+                const wrap = el('div', 'flex items-center gap-2 flex-wrap');
+                const canceledLabel = d.linked_canceled_day ? ` (Nachholer für ${d.linked_canceled_day})` : '';
+                wrap.appendChild(el('span', 'font-extrabold text-sm text-slate-900 dark:text-white', `${d.day_name}${canceledLabel}`));
+                wrap.appendChild(el('span', 'inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-extrabold bg-blue-600 text-white shadow-xs', '🔄 Nachholspieltag'));
+                titleWrap.appendChild(wrap);
+            } else {
+                titleWrap.appendChild(el('span', 'font-bold text-sm text-slate-900 dark:text-white', d.day_name));
+            }
+            headerRow.appendChild(titleWrap);
+
+            const dateWrap = el('div');
+            if (d.is_canceled && d.linked_rescheduled_day) {
+                const rDiv = el('div', 'text-right');
+                rDiv.appendChild(el('span', 'px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300 border border-amber-300', 'Urspr. 02.05. ausgefallen'));
+                rDiv.appendChild(el('div', 'text-xs text-blue-600 dark:text-blue-400 font-bold font-mono mt-0.5', 'gespielt 19.09.'));
+                dateWrap.appendChild(rDiv);
+            } else if (d.is_canceled) {
+                dateWrap.appendChild(el('span', 'px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300 border border-amber-300', 'Ausgefallen'));
+                if (d.date) {
+                    dateWrap.appendChild(el('span', 'text-[11px] text-slate-400 line-through font-mono ml-1', ` ${d.date}`));
+                }
+            } else if (d.is_rescheduled) {
+                dateWrap.appendChild(el('span', 'text-[11px] text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-950/80 px-2 py-0.5 rounded-md font-mono font-bold border border-blue-300 dark:border-blue-700', d.date || ''));
+            } else {
+                dateWrap.appendChild(el('span', 'text-[11px] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-700/60 px-2 py-0.5 rounded-md font-mono', d.date || 'Termin folgt'));
+            }
+            headerRow.appendChild(dateWrap);
+            topDiv.appendChild(headerRow);
+
+            const venueText = d.venue ? d.venue : (d.is_canceled ? 'Spieltag fand nicht statt' : 'Spielort offen');
+            topDiv.appendChild(el('p', 'text-xs text-slate-500 dark:text-slate-400 truncate mb-3', venueText));
+            card.appendChild(topDiv);
+
+            const bottomRow = el('div', 'flex justify-between items-center pt-2.5 border-t border-slate-100 dark:border-slate-700');
+            bottomRow.appendChild(el('span', 'text-xs font-bold text-blue-700 dark:text-sky-400', scoreText));
+            bottomRow.appendChild(el('span', 'text-xs text-slate-400 dark:text-slate-500 flex items-center gap-1 font-medium', 'Details ➜'));
+            card.appendChild(bottomRow);
+
+            matchdaysGrid.appendChild(card);
+        });
     }
-    document.getElementById('matchdaysGrid').innerHTML = gridHtml;
 }
 
+// 6. Sicheres Modal-Rendering (Mannschaften & Spieler)
 function openMatchdayModal(dayKey) {
     const groupData = GVNRW_DATA[currentYear]?.[currentTeam];
     const d = groupData?.matchdays_details?.[dayKey];
     if (!d) return;
 
-    document.getElementById('modalDayTitle').innerText = d.day_name;
-    document.getElementById('modalDayDate').innerText = d.date ? 'Datum: ' + d.date : 'Termin noch offen';
-    document.getElementById('modalVenueText').innerText = d.venue || (d.is_canceled ? 'Spieltag ausgefallen' : 'Nicht spezifiziert');
+    const titleEl = document.getElementById('modalDayTitle');
+    const dateEl = document.getElementById('modalDayDate');
+    const venueEl = document.getElementById('modalVenueText');
+    const teeRow = document.getElementById('modalTeeRow');
+    const teeText = document.getElementById('modalTeeText');
 
-    if (d.tee_info) {
-        document.getElementById('modalTeeRow').style.display = 'block';
-        document.getElementById('modalTeeText').innerText = d.tee_info;
-    } else {
-        document.getElementById('modalTeeRow').style.display = 'none';
+    if (titleEl) titleEl.textContent = d.day_name;
+    if (dateEl) dateEl.textContent = d.date ? `Datum: ${d.date}` : 'Termin noch offen';
+    if (venueEl) venueEl.textContent = d.venue || (d.is_canceled ? 'Spieltag ausgefallen' : 'Nicht spezifiziert');
+
+    if (teeRow && teeText) {
+        if (d.tee_info) {
+            teeRow.style.display = 'block';
+            teeText.textContent = d.tee_info;
+        } else {
+            teeRow.style.display = 'none';
+        }
     }
 
     const bannerBox = document.getElementById('modalBannerContainer');
-    if (d.is_canceled && d.linked_rescheduled_day) {
-        bannerBox.innerHTML = `
-        <div class="mb-3 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-xs text-blue-900 dark:text-blue-200">
-            <div class="font-extrabold flex items-center gap-1 mb-1">
-                <span>🔄</span> <span>Spieltag wurde nachgeholt!</span>
-            </div>
-            <p>Dieser Spieltag war ursprünglich für den 02.05.2026 angesetzt, musste jedoch wetterbedingt abgesagt werden. Er wurde am <strong>19.09.2026</strong> im <strong>GC Essen-Heidhausen</strong> nachgeholt. Die hier angezeigten Ergebnisse und Punkte stammen von diesem Nachholtermin.</p>
-        </div>
-        `;
-    } else if (d.is_canceled) {
-        bannerBox.innerHTML = `
-        <div class="mb-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200">
-            <div class="font-bold flex items-center gap-1 mb-1">
-                <span>⚠️</span> <span>Spieltag ausgefallen / entfallen</span>
-            </div>
-            <p>Dieser Spieltag wurde nicht ausgetragen.</p>
-        </div>
-        `;
-    } else {
-        bannerBox.innerHTML = '';
+    if (bannerBox) {
+        bannerBox.replaceChildren();
+        if (d.is_canceled && d.linked_rescheduled_day) {
+            const b = el('div', 'mb-3 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 text-xs text-blue-900 dark:text-blue-200');
+            b.appendChild(el('div', 'font-extrabold flex items-center gap-1 mb-1', '🔄 Spieltag wurde nachgeholt!'));
+            b.appendChild(el('p', '', 'Dieser Spieltag war ursprünglich für den 02.05.2026 angesetzt, musste jedoch wetterbedingt abgesagt werden. Er wurde am 19.09.2026 im GC Essen-Heidhausen nachgeholt. Die hier angezeigten Ergebnisse und Punkte stammen von diesem Nachholtermin.'));
+            bannerBox.appendChild(b);
+        } else if (d.is_canceled) {
+            const b = el('div', 'mb-3 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200');
+            b.appendChild(el('div', 'font-bold flex items-center gap-1 mb-1', '⚠️ Spieltag ausgefallen / entfallen'));
+            b.appendChild(el('p', '', 'Dieser Spieltag wurde nicht ausgetragen.'));
+            bannerBox.appendChild(b);
+        }
     }
 
     // Tab 1: Teams
-    let teamHtml = '';
-    const results = d.team_results || [];
-    results.forEach(r => {
-        const isMuelheim = r.team_name.toLowerCase().includes('mülheim');
-        const rowBg = isMuelheim ? 'bg-blue-50/90 dark:bg-blue-950/60 font-bold' : '';
-        const rank = r.rank ? `#${r.rank}` : '-';
-        teamHtml += `
-        <tr class="${rowBg}">
-            <td class="py-2 px-2.5 text-center font-semibold text-slate-500">${rank}</td>
-            <td class="py-2 px-2.5 font-medium text-slate-900 dark:text-white flex items-center gap-1.5">
-                ${r.team_name} ${isMuelheim ? '<span class="text-xs">🏌️‍♂️</span>' : ''}
-            </td>
-            <td class="py-2 px-2.5 text-right font-mono text-slate-700 dark:text-slate-300">${r.score || '-'}</td>
-            <td class="py-2 px-2.5 text-right font-bold text-blue-700 dark:text-sky-400">${r.points ? r.points + ' Pkt' : '-'}</td>
-        </tr>
-        `;
-    });
-    if (results.length === 0) {
-        teamHtml = '<tr><td colspan="4" class="py-6 text-center text-slate-400">Keine Mannschaftsergebnisse für diesen Spieltag.</td></tr>';
+    const teamBody = document.getElementById('modalTeamResultsBody');
+    if (teamBody) {
+        teamBody.replaceChildren();
+        const results = d.team_results || [];
+        if (results.length === 0) {
+            const tr = el('tr');
+            const td = el('td', 'py-6 text-center text-slate-400', 'Keine Mannschaftsergebnisse für diesen Spieltag.');
+            td.colSpan = 4;
+            tr.appendChild(td);
+            teamBody.appendChild(tr);
+        } else {
+            results.forEach(r => {
+                const isMuelheim = (r.team_name || '').toLowerCase().includes('mülheim');
+                const rowBg = isMuelheim ? 'bg-blue-50/90 dark:bg-blue-950/60 font-bold' : '';
+                const tr = el('tr', rowBg);
+
+                tr.appendChild(el('td', 'py-2 px-2.5 text-center font-semibold text-slate-500', r.rank ? `#${r.rank}` : '-'));
+                const tdName = el('td', 'py-2 px-2.5 font-medium text-slate-900 dark:text-white flex items-center gap-1.5', r.team_name || '-');
+                if (isMuelheim) {
+                    tdName.appendChild(el('span', 'text-xs', ' 🏌️‍♂️'));
+                }
+                tr.appendChild(tdName);
+
+                tr.appendChild(el('td', 'py-2 px-2.5 text-right font-mono text-slate-700 dark:text-slate-300', String(r.score != null ? r.score : '-')));
+                tr.appendChild(el('td', 'py-2 px-2.5 text-right font-bold text-blue-700 dark:text-sky-400', r.points ? `${r.points} Pkt` : '-'));
+                teamBody.appendChild(tr);
+            });
+        }
     }
-    document.getElementById('modalTeamResultsBody').innerHTML = teamHtml;
 
     // Tab 2: Players
-    let playerHtml = '';
-    const players = d.players || [];
-    players.forEach(p => {
-        const isStreich = !!(p.is_streichergebnis || p.is_cutoff);
-        const cardBg = isStreich
-            ? 'bg-slate-50/70 dark:bg-slate-800/40 border-dashed border-slate-300 dark:border-slate-700 opacity-75'
-            : 'bg-white dark:bg-slate-800/90 border-slate-200 dark:border-slate-700 shadow-2xs';
+    const playersList = document.getElementById('modalPlayersList');
+    if (playersList) {
+        playersList.replaceChildren();
+        const players = d.players || [];
+        if (players.length === 0) {
+            playersList.appendChild(el('p', 'text-center py-6 text-xs text-slate-400', 'Keine Spieler-Einzelergebnisse hinterlegt.'));
+        } else {
+            players.forEach(p => {
+                const isStreich = !!(p.is_streichergebnis || p.is_cutoff);
+                const cardBg = isStreich
+                    ? 'bg-slate-50/70 dark:bg-slate-800/40 border-dashed border-slate-300 dark:border-slate-700 opacity-75'
+                    : 'bg-white dark:bg-slate-800/90 border-slate-200 dark:border-slate-700 shadow-2xs';
 
-        const firstName = p.name || '';
-        const lastName = p.familyname || '';
-        const fullName = p.player_name || `${firstName} ${lastName}`.trim() || 'Spieler';
+                const card = el('div', `${cardBg} p-3 rounded-xl border`);
+                const headerRow = el('div', 'flex justify-between items-start');
 
-        const hcpText = p.hcp || '-';
-        const playinHcpText = p.playinhcp ? ` &bull; Sp.HCP: <strong class="text-slate-700 dark:text-slate-300">${p.playinhcp}</strong>` : '';
-
-        const bruttoScore = p.erg_brutto || p.brutto || '-';
-        let plusCrText = '-';
-        const rawPlusCr = (p.plus_cr !== undefined && p.plus_cr !== null && p.plus_cr !== '') ? p.plus_cr : p.cr_diff;
-        if (rawPlusCr !== undefined && rawPlusCr !== null && rawPlusCr !== '') {
-            const num = parseFloat(rawPlusCr);
-            plusCrText = (!isNaN(num) && num > 0 ? '+' + rawPlusCr : String(rawPlusCr)) + ' ü. CR';
-        }
-
-        let holeByHole = '';
-        if (p.pars && p.pars.length >= 21 && p.scores && p.scores.length >= 21) {
-            function formatHole(score, par) {
-                if (score == null || par == null) return '<td class="p-1 border border-slate-200 dark:border-slate-700 font-mono text-center">-</td>';
-                const diff = score - par;
-                let badge = 'text-slate-800 dark:text-slate-200 font-medium';
-                if (diff <= -2) {
-                    badge = 'bg-amber-200 text-amber-900 dark:bg-amber-950 dark:text-amber-200 font-extrabold px-1 rounded';
-                } else if (diff === -1) {
-                    badge = 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300 font-bold px-1 rounded';
-                } else if (diff === 0) {
-                    badge = 'text-slate-700 dark:text-slate-300';
-                } else if (diff === 1) {
-                    badge = 'text-slate-900 dark:text-slate-100 font-semibold';
-                } else {
-                    badge = 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 font-semibold px-1 rounded';
+                const leftDiv = el('div');
+                const nameRow = el('div', 'font-bold text-xs sm:text-sm text-slate-900 dark:text-white flex items-center gap-1.5');
+                const firstName = p.name || '';
+                const lastName = p.familyname || '';
+                const fullName = p.player_name || `${firstName} ${lastName}`.trim() || 'Spieler';
+                nameRow.appendChild(el('span', '', fullName));
+                if (isStreich) {
+                    nameRow.appendChild(el('span', 'text-[10px] px-1.5 py-0.2 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400 rounded-sm font-semibold', 'Streichergebnis'));
                 }
-                return `<td class="p-1 border border-slate-200 dark:border-slate-700 font-mono text-center"><span class="${badge}">${score}</span></td>`;
-            }
+                leftDiv.appendChild(nameRow);
 
-            let fPars = '', fScores = '', fHeaders = '';
-            for (let i = 0; i < 9; i++) {
-                fHeaders += `<th class="p-1 border border-slate-200 dark:border-slate-700 text-center font-medium">${i+1}</th>`;
-                fPars += `<td class="p-1 border border-slate-200 dark:border-slate-700 text-center text-slate-400 font-mono">${p.pars[i] || '-'}</td>`;
-                fScores += formatHole(p.scores[i], p.pars[i]);
-            }
-            const fOutPar = p.pars[9] != null ? p.pars[9] : '-';
-            const fOutScore = p.scores[9] != null ? p.scores[9] : '-';
+                const hcpRow = el('div', 'text-[11px] text-slate-500 dark:text-slate-400 mt-0.5', 'HCP: ');
+                hcpRow.appendChild(el('strong', 'text-slate-700 dark:text-slate-300', String(p.hcp || '-')));
+                if (p.playinhcp) {
+                    const spHcp = el('span', '', ' • Sp.HCP: ');
+                    spHcp.appendChild(el('strong', 'text-slate-700 dark:text-slate-300', String(p.playinhcp)));
+                    hcpRow.appendChild(spHcp);
+                }
+                leftDiv.appendChild(hcpRow);
+                headerRow.appendChild(leftDiv);
 
-            let bPars = '', bScores = '', bHeaders = '';
-            for (let i = 10; i < 19; i++) {
-                bHeaders += `<th class="p-1 border border-slate-200 dark:border-slate-700 text-center font-medium">${i}</th>`;
-                bPars += `<td class="p-1 border border-slate-200 dark:border-slate-700 text-center text-slate-400 font-mono">${p.pars[i] || '-'}</td>`;
-                bScores += formatHole(p.scores[i], p.pars[i]);
-            }
-            const bInPar = p.pars[19] != null ? p.pars[19] : '-';
-            const bInScore = p.scores[19] != null ? p.scores[19] : '-';
+                const rightDiv = el('div', 'text-right');
+                const rawPlusCr = (p.plus_cr !== undefined && p.plus_cr !== null && p.plus_cr !== '') ? p.plus_cr : p.cr_diff;
+                let plusCrText = '-';
+                if (rawPlusCr !== undefined && rawPlusCr !== null && rawPlusCr !== '') {
+                    const num = parseFloat(rawPlusCr);
+                    plusCrText = (!isNaN(num) && num > 0 ? '+' + rawPlusCr : String(rawPlusCr)) + ' ü. CR';
+                }
+                rightDiv.appendChild(el('div', 'text-xs sm:text-sm font-extrabold text-blue-700 dark:text-sky-400 font-mono', plusCrText));
 
-            const totPar = p.pars[20] != null ? p.pars[20] : '-';
-            const totScore = p.scores[20] != null ? p.scores[20] : '-';
+                const bruttoScore = p.erg_brutto || p.brutto || '-';
+                rightDiv.appendChild(el('div', 'text-[11px] text-slate-500 font-mono', `Brutto: ${bruttoScore}`));
+                headerRow.appendChild(rightDiv);
 
-            holeByHole = `
-            <div class="mt-2 text-[10px] overflow-x-auto">
-                <table class="w-full border-collapse border border-slate-200 dark:border-slate-700">
-                    <thead class="bg-slate-100 dark:bg-slate-900/60 text-slate-600 dark:text-slate-400">
-                        <tr>
-                            <th class="p-1 border border-slate-200 dark:border-slate-700 text-left font-semibold">Loch</th>
-                            ${fHeaders}
-                            <th class="p-1 border border-slate-200 dark:border-slate-700 font-bold bg-slate-200/60 dark:bg-slate-800">OUT</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr class="text-slate-500">
-                            <td class="p-1 border border-slate-200 dark:border-slate-700 font-semibold text-slate-400">Par</td>
-                            ${fPars}
-                            <td class="p-1 border border-slate-200 dark:border-slate-700 text-center font-mono font-semibold bg-slate-100/60 dark:bg-slate-800/60">${fOutPar}</td>
-                        </tr>
-                        <tr>
-                            <td class="p-1 border border-slate-200 dark:border-slate-700 font-semibold text-slate-700 dark:text-slate-300">Score</td>
-                            ${fScores}
-                            <td class="p-1 border border-slate-200 dark:border-slate-700 text-center font-mono font-bold bg-slate-200/60 dark:bg-slate-800">${fOutScore}</td>
-                        </tr>
-                    </tbody>
-                </table>
+                card.appendChild(headerRow);
 
-                <table class="w-full border-collapse border border-slate-200 dark:border-slate-700 mt-1">
-                    <thead class="bg-slate-100 dark:bg-slate-900/60 text-slate-600 dark:text-slate-400">
-                        <tr>
-                            <th class="p-1 border border-slate-200 dark:border-slate-700 text-left font-semibold">Loch</th>
-                            ${bHeaders}
-                            <th class="p-1 border border-slate-200 dark:border-slate-700 font-bold bg-slate-200/60 dark:bg-slate-800">IN</th>
-                            <th class="p-1 border border-slate-200 dark:border-slate-700 font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-900 dark:text-blue-200">TOT</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr class="text-slate-500">
-                            <td class="p-1 border border-slate-200 dark:border-slate-700 font-semibold text-slate-400">Par</td>
-                            ${bPars}
-                            <td class="p-1 border border-slate-200 dark:border-slate-700 text-center font-mono font-semibold bg-slate-100/60 dark:bg-slate-800/60">${bInPar}</td>
-                            <td class="p-1 border border-slate-200 dark:border-slate-700 text-center font-mono font-bold bg-slate-100/60 dark:bg-slate-800/60">${totPar}</td>
-                        </tr>
-                        <tr>
-                            <td class="p-1 border border-slate-200 dark:border-slate-700 font-semibold text-slate-700 dark:text-slate-300">Score</td>
-                            ${bScores}
-                            <td class="p-1 border border-slate-200 dark:border-slate-700 text-center font-mono font-bold bg-slate-200/60 dark:bg-slate-800">${bInScore}</td>
-                            <td class="p-1 border border-slate-200 dark:border-slate-700 font-extrabold bg-blue-50 dark:bg-blue-950/60 text-blue-800 dark:text-sky-300 font-mono text-center">${totScore}</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-            `;
+                // Loch-für-Loch Scorekarte
+                if (p.pars && p.pars.length >= 21 && p.scores && p.scores.length >= 21) {
+                    const tableWrap = el('div', 'mt-2 text-[10px] overflow-x-auto');
+
+                    function formatHole(score, par) {
+                        const td = el('td', 'p-1 border border-slate-200 dark:border-slate-700 font-mono text-center');
+                        if (score == null || par == null) {
+                            td.textContent = '-';
+                            return td;
+                        }
+                        const diff = score - par;
+                        let badgeCls = 'text-slate-800 dark:text-slate-200 font-medium';
+                        if (diff <= -2) badgeCls = 'bg-amber-200 text-amber-900 dark:bg-amber-950 dark:text-amber-200 font-extrabold px-1 rounded';
+                        else if (diff === -1) badgeCls = 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300 font-bold px-1 rounded';
+                        else if (diff === 0) badgeCls = 'text-slate-700 dark:text-slate-300';
+                        else if (diff === 1) badgeCls = 'text-slate-900 dark:text-slate-100 font-semibold';
+                        else badgeCls = 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 font-semibold px-1 rounded';
+                        td.appendChild(el('span', badgeCls, String(score)));
+                        return td;
+                    }
+
+                    // Front 9 Tabelle
+                    const tableF = el('table', 'w-full border-collapse border border-slate-200 dark:border-slate-700');
+                    const theadF = el('thead', 'bg-slate-100 dark:bg-slate-900/60 text-slate-600 dark:text-slate-400');
+                    const trHeaderF = el('tr');
+                    trHeaderF.appendChild(el('th', 'p-1 border border-slate-200 dark:border-slate-700 text-left font-semibold', 'Loch'));
+                    for (let i = 0; i < 9; i++) {
+                        trHeaderF.appendChild(el('th', 'p-1 border border-slate-200 dark:border-slate-700 text-center font-medium', String(i + 1)));
+                    }
+                    trHeaderF.appendChild(el('th', 'p-1 border border-slate-200 dark:border-slate-700 font-bold bg-slate-200/60 dark:bg-slate-800', 'OUT'));
+                    theadF.appendChild(trHeaderF);
+                    tableF.appendChild(theadF);
+
+                    const tbodyF = el('tbody');
+                    const trParF = el('tr', 'text-slate-500');
+                    trParF.appendChild(el('td', 'p-1 border border-slate-200 dark:border-slate-700 font-semibold text-slate-400', 'Par'));
+                    for (let i = 0; i < 9; i++) {
+                        trParF.appendChild(el('td', 'p-1 border border-slate-200 dark:border-slate-700 text-center text-slate-400 font-mono', String(p.pars[i] != null ? p.pars[i] : '-')));
+                    }
+                    trParF.appendChild(el('td', 'p-1 border border-slate-200 dark:border-slate-700 text-center font-mono font-semibold bg-slate-100/60 dark:bg-slate-800/60', String(p.pars[9] != null ? p.pars[9] : '-')));
+                    tbodyF.appendChild(trParF);
+
+                    const trScoreF = el('tr');
+                    trScoreF.appendChild(el('td', 'p-1 border border-slate-200 dark:border-slate-700 font-semibold text-slate-700 dark:text-slate-300', 'Score'));
+                    for (let i = 0; i < 9; i++) {
+                        trScoreF.appendChild(formatHole(p.scores[i], p.pars[i]));
+                    }
+                    trScoreF.appendChild(el('td', 'p-1 border border-slate-200 dark:border-slate-700 text-center font-mono font-bold bg-slate-200/60 dark:bg-slate-800', String(p.scores[9] != null ? p.scores[9] : '-')));
+                    tbodyF.appendChild(trScoreF);
+                    tableF.appendChild(tbodyF);
+                    tableWrap.appendChild(tableF);
+
+                    // Back 9 Tabelle
+                    const tableB = el('table', 'w-full border-collapse border border-slate-200 dark:border-slate-700 mt-1');
+                    const theadB = el('thead', 'bg-slate-100 dark:bg-slate-900/60 text-slate-600 dark:text-slate-400');
+                    const trHeaderB = el('tr');
+                    trHeaderB.appendChild(el('th', 'p-1 border border-slate-200 dark:border-slate-700 text-left font-semibold', 'Loch'));
+                    for (let i = 10; i < 19; i++) {
+                        trHeaderB.appendChild(el('th', 'p-1 border border-slate-200 dark:border-slate-700 text-center font-medium', String(i)));
+                    }
+                    trHeaderB.appendChild(el('th', 'p-1 border border-slate-200 dark:border-slate-700 font-bold bg-slate-200/60 dark:bg-slate-800', 'IN'));
+                    trHeaderB.appendChild(el('th', 'p-1 border border-slate-200 dark:border-slate-700 font-bold bg-blue-100 dark:bg-blue-900/40 text-blue-900 dark:text-blue-200', 'TOT'));
+                    theadB.appendChild(trHeaderB);
+                    tableB.appendChild(theadB);
+
+                    const tbodyB = el('tbody');
+                    const trParB = el('tr', 'text-slate-500');
+                    trParB.appendChild(el('td', 'p-1 border border-slate-200 dark:border-slate-700 font-semibold text-slate-400', 'Par'));
+                    for (let i = 10; i < 19; i++) {
+                        trParB.appendChild(el('td', 'p-1 border border-slate-200 dark:border-slate-700 text-center text-slate-400 font-mono', String(p.pars[i] != null ? p.pars[i] : '-')));
+                    }
+                    trParB.appendChild(el('td', 'p-1 border border-slate-200 dark:border-slate-700 text-center font-mono font-semibold bg-slate-100/60 dark:bg-slate-800/60', String(p.pars[19] != null ? p.pars[19] : '-')));
+                    trParB.appendChild(el('td', 'p-1 border border-slate-200 dark:border-slate-700 text-center font-mono font-bold bg-slate-100/60 dark:bg-slate-800/60', String(p.pars[20] != null ? p.pars[20] : '-')));
+                    tbodyB.appendChild(trParB);
+
+                    const trScoreB = el('tr');
+                    trScoreB.appendChild(el('td', 'p-1 border border-slate-200 dark:border-slate-700 font-semibold text-slate-700 dark:text-slate-300', 'Score'));
+                    for (let i = 10; i < 19; i++) {
+                        trScoreB.appendChild(formatHole(p.scores[i], p.pars[i]));
+                    }
+                    trScoreB.appendChild(el('td', 'p-1 border border-slate-200 dark:border-slate-700 text-center font-mono font-bold bg-slate-200/60 dark:bg-slate-800', String(p.scores[19] != null ? p.scores[19] : '-')));
+                    trScoreB.appendChild(el('td', 'p-1 border border-slate-200 dark:border-slate-700 font-extrabold bg-blue-50 dark:bg-blue-950/60 text-blue-800 dark:text-sky-300 font-mono text-center', String(p.scores[20] != null ? p.scores[20] : '-')));
+                    tbodyB.appendChild(trScoreB);
+                    tableB.appendChild(tbodyB);
+                    tableWrap.appendChild(tableB);
+
+                    card.appendChild(tableWrap);
+                }
+
+                playersList.appendChild(card);
+            });
         }
-
-        playerHtml += `
-        <div class="${cardBg} p-3 rounded-xl border">
-            <div class="flex justify-between items-start">
-                <div>
-                    <div class="font-bold text-xs sm:text-sm text-slate-900 dark:text-white flex items-center gap-1.5">
-                        <span>${fullName}</span>
-                        ${isStreich ? '<span class="text-[10px] px-1.5 py-0.2 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400 rounded-sm font-semibold">Streichergebnis</span>' : ''}
-                    </div>
-                    <div class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                        HCP: <strong class="text-slate-700 dark:text-slate-300">${hcpText}</strong>${playinHcpText}
-                    </div>
-                </div>
-                <div class="text-right">
-                    <div class="text-xs sm:text-sm font-extrabold text-blue-700 dark:text-sky-400 font-mono">
-                        ${plusCrText}
-                    </div>
-                    <div class="text-[11px] text-slate-500 font-mono">
-                        Brutto: ${bruttoScore}
-                    </div>
-                </div>
-            </div>
-            ${holeByHole}
-        </div>
-        `;
-    });
-
-    if (players.length === 0) {
-        playerHtml = '<p class="text-center py-6 text-xs text-slate-400">Keine Spieler-Einzelergebnisse hinterlegt.</p>';
     }
-    document.getElementById('modalPlayersList').innerHTML = playerHtml;
 
     switchModalTab('teams');
     const modal = document.getElementById('detailModal');
@@ -674,19 +755,27 @@ function closeModalOnBackdrop(e) {
 function switchModalTab(tabName) {
     currentModalTab = tabName;
     const isTeams = tabName === 'teams';
-    document.getElementById('tabBtnTeams').className = isTeams
-        ? 'py-2 px-2 text-xs font-semibold rounded-lg bg-blue-700 text-white shadow-xs transition-all text-center'
-        : 'py-2 px-2 text-xs font-semibold rounded-lg text-slate-600 dark:text-slate-300 transition-all text-center hover:text-slate-900 dark:hover:text-white';
-    document.getElementById('tabBtnPlayers').className = !isTeams
-        ? 'py-2 px-2 text-xs font-semibold rounded-lg bg-blue-700 text-white shadow-xs transition-all text-center'
-        : 'py-2 px-2 text-xs font-semibold rounded-lg text-slate-600 dark:text-slate-300 transition-all text-center hover:text-slate-900 dark:hover:text-white';
-    document.getElementById('tabContentTeams').classList.toggle('hidden', !isTeams);
-    document.getElementById('tabContentPlayers').classList.toggle('hidden', isTeams);
+    const tabTeams = document.getElementById('tabBtnTeams');
+    const tabPlayers = document.getElementById('tabBtnPlayers');
+    const contentTeams = document.getElementById('tabContentTeams');
+    const contentPlayers = document.getElementById('tabContentPlayers');
+
+    if (tabTeams) {
+        tabTeams.className = isTeams
+            ? 'py-2 px-2 text-xs font-semibold rounded-lg bg-blue-700 text-white shadow-xs transition-all text-center'
+            : 'py-2 px-2 text-xs font-semibold rounded-lg text-slate-600 dark:text-slate-300 transition-all text-center hover:text-slate-900 dark:hover:text-white';
+    }
+    if (tabPlayers) {
+        tabPlayers.className = !isTeams
+            ? 'py-2 px-2 text-xs font-semibold rounded-lg bg-blue-700 text-white shadow-xs transition-all text-center'
+            : 'py-2 px-2 text-xs font-semibold rounded-lg text-slate-600 dark:text-slate-300 transition-all text-center hover:text-slate-900 dark:hover:text-white';
+    }
+    if (contentTeams) contentTeams.classList.toggle('hidden', !isTeams);
+    if (contentPlayers) contentPlayers.classList.toggle('hidden', isTeams);
 }
 
-// 4. Initialisierung & Event Listener Bindings
+// 7. Initialisierung & Event Listener Bindings
 function init() {
-    // Header & Share Modal Bindings
     document.getElementById('openShareBtn')?.addEventListener('click', openShareModal);
     document.getElementById('closeShareModalBtn')?.addEventListener('click', closeShareModal);
     document.getElementById('shareModal')?.addEventListener('click', closeShareModalOnBackdrop);
@@ -695,16 +784,13 @@ function init() {
     document.getElementById('shareEmailBtn')?.addEventListener('click', shareViaEmail);
     document.getElementById('systemShareBtn')?.addEventListener('click', triggerSystemShare);
 
-    // Detail Modal Bindings
     document.getElementById('closeDetailModalBtn')?.addEventListener('click', closeModal);
     document.getElementById('detailModal')?.addEventListener('click', closeModalOnBackdrop);
     document.getElementById('tabBtnTeams')?.addEventListener('click', () => switchModalTab('teams'));
     document.getElementById('tabBtnPlayers')?.addEventListener('click', () => switchModalTab('players'));
 
-    // Global Table Toggle
     document.getElementById('toggleAllBtn')?.addEventListener('click', toggleAllTableMatchdays);
 
-    // Year Selector Event Delegation
     document.getElementById('yearSelector')?.addEventListener('click', (e) => {
         const btn = e.target.closest('button[data-year]');
         if (btn && btn.dataset.year) {
@@ -712,7 +798,6 @@ function init() {
         }
     });
 
-    // Team Selector Event Delegation
     document.getElementById('teamSelector')?.addEventListener('click', (e) => {
         const btn = e.target.closest('button[data-team]');
         if (btn && btn.dataset.team) {
@@ -720,7 +805,6 @@ function init() {
         }
     });
 
-    // Standings Table Event Delegation (Auf-/Zuklappen von Spieltagen pro Club)
     document.getElementById('standingsTableBody')?.addEventListener('click', (e) => {
         const row = e.target.closest('[data-club-idx]');
         if (row && row.dataset.clubIdx !== undefined) {
@@ -728,7 +812,6 @@ function init() {
         }
     });
 
-    // Matchdays Grid Event Delegation (Öffnen der Spieltagsdetails)
     document.getElementById('matchdaysGrid')?.addEventListener('click', (e) => {
         const card = e.target.closest('[data-day-key]');
         if (card && card.dataset.dayKey) {
@@ -736,7 +819,6 @@ function init() {
         }
     });
 
-    // Initiale Ansicht setzen
     setYear(currentYear, false);
     setTeam(currentTeam, false);
     renderView();
@@ -748,7 +830,7 @@ if (document.readyState === 'loading') {
     init();
 }
 
-// 5. PWA Service Worker Registrierung
+// 8. PWA Service Worker Registrierung
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('./sw.js')
